@@ -14,6 +14,7 @@ using ItemChanger;
 using ItemChanger.Extensions;
 using ItemChanger.Internal;
 using ItemChanger.Items;
+using ItemChanger.Locations;
 using ItemChanger.Tags;
 using ItemChanger.UIDefs;
 using Modding;
@@ -255,10 +256,7 @@ namespace Archipelago.HollowKnight
         {
             LogDebug($"[PlaceItem] Placing item {name} into {location} with ID {netItem.Item}");
             
-            var originalLocation = string.Copy(location);
-            
-            location = StripShopSuffix(location);
-            AbstractLocation loc = Finder.GetLocation(location);
+            AbstractLocation loc = Finder.GetLocation(StripShopSuffix(location));
             
             string targetSlotName = null;
             if (netItem.Player != slot)
@@ -279,7 +277,9 @@ namespace Archipelago.HollowKnight
             {
                 // Since HK is a remote items game, I don't want the placement to actually do anything. The item will come from the server.
                 var originalItem = Finder.GetItem(name);
-                item = new DisguisedVoidItem(originalItem, targetSlotName);
+                var container = PlacementContainerHelper.GetContainerType(loc);
+                LogDebug($"[PlaceItem] Discovered container type {container} for location {location}. {loc.GetType()} {pmt.GetType()}");
+                item = new DisguisedVoidItem(originalItem, targetSlotName, container);
 
                 if (netItem.Player == slot)
                 {
@@ -310,16 +310,16 @@ namespace Archipelago.HollowKnight
 
             item.OnGive += (x) =>
             {
-                var id = session.Locations.GetLocationIdFromName("Hollow Knight", originalLocation);
+                var id = session.Locations.GetLocationIdFromName("Hollow Knight", location);
                 session.Locations.CompleteLocationChecks(id);
             };
 
             bool handled = false;
             foreach (var handler in placementHandlers)
             {
-                if (handler.CanHandlePlacement(originalLocation))
+                if (handler.CanHandlePlacement(location))
                 {
-                    handler.HandlePlacement(pmt, item, originalLocation);
+                    handler.HandlePlacement(pmt, item, location);
                     handled = true;
                     break;
                 }
@@ -365,10 +365,11 @@ namespace Archipelago.HollowKnight
                 var name = kvp.Key;
                 var item = kvp.Value;
 
-                var apLocation = new ArchipelagoLocation("Vanilla_" + name);
+                var apLocation = new VanillaPlacementLocation("Vanilla_" + name);
                 var placement = apLocation.Wrap();
                 placement.Add(item);
 
+                // TODO: Figure out why this is necessary. Logged in #6.
                 try
                 {
                     item.UIDef = new MsgUIDef()
@@ -387,6 +388,7 @@ namespace Archipelago.HollowKnight
                         sprite = new EmptySprite()
                     };
                 }
+
                 var tag = item.AddTag<InteropTag>();
                 tag.Message = "RecentItems";
                 tag.Properties["IgnoreItem"] = true;
@@ -416,32 +418,6 @@ namespace Archipelago.HollowKnight
             {
                 return;
             }
-
-            ConnectToArchipelago();
-            vanillaItemPlacements = RetrieveVanillaItemPlacementsFromSave();
-        }
-
-        //TODO: I don't think this works. I need to retrieve the custom placements somehow. homothety suggested ItemChanger.Internal.Ref.Settings.Placements
-        /* When loading an existing game:
-         *      - Load my vanilla placements, this could be done with a ItemChanger Tag - would have their own Tag type
-         *      - Load my DisguisedVoidItem placements, this could be done with tag (or override OnLoad)
-         *      - Load my ArchipelagoItem placements, which could probably be done with the same tag as DisguisedVoidItem
-        */
-        private Dictionary<string, AbstractPlacement> RetrieveVanillaItemPlacementsFromSave()
-        {
-            var placements = new Dictionary<string, AbstractPlacement>();
-            var allItems = Finder.GetFullItemList().Where(kvp => kvp.Value is not CustomSkillItem).Select(x => x.Key);
-            foreach (var item in allItems)
-            {
-                var location = Finder.GetLocation($"Vanilla_{item}");
-                if (location == null)
-                {
-                    LogDebug($"Could not find previous vanilla item placement for item name: {item}");
-                    continue;
-                }
-                placements.Add(item, location.Wrap());
-            }
-            return placements;
         }
 
         private void Events_OnItemChangerUnhook()
