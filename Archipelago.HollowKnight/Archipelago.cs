@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Archipelago.HollowKnight.IC;
+using Archipelago.HollowKnight.IC.Disguises;
 using Archipelago.HollowKnight.MC;
 using Archipelago.HollowKnight.Placements;
 using Archipelago.HollowKnight.SlotData;
@@ -51,6 +52,7 @@ namespace Archipelago.HollowKnight
         private TimeSpan timeBetweenReceiveItem = TimeSpan.FromMilliseconds(500);
         private DateTime lastUpdate = DateTime.MinValue;
         private List<IPlacementHandler> placementHandlers;
+        private List<ILocationDisguise> locationDisguiseHandlers;
         
 
         public override string GetVersion() => new Version(0, 0, 2).ToString();
@@ -169,7 +171,16 @@ namespace Archipelago.HollowKnight
                 SlotOptions = SlotDataExtract.ExtractObjectFromSlotData<SlotOptions>(success.SlotData["options"]);
 
                 InitializePlacementHandlers();
+                InitalizeLocationDisguises();
             }
+        }
+
+        private void InitalizeLocationDisguises()
+        {
+            locationDisguiseHandlers = new List<ILocationDisguise>()
+            {
+                new ContainerPreservingLocationDisguise()
+            };
         }
 
         private void InitializePlacementHandlers()
@@ -271,15 +282,27 @@ namespace Archipelago.HollowKnight
             }
 
             AbstractPlacement pmt = loc.Wrap();
-            AbstractItem item;
+            AbstractItem item = null;
 
             if (Finder.ItemNames.Contains(name))
             {
                 // Since HK is a remote items game, I don't want the placement to actually do anything. The item will come from the server.
                 var originalItem = Finder.GetItem(name);
-                var container = PlacementContainerHelper.GetContainerType(loc);
-                LogDebug($"[PlaceItem] Discovered container type {container} for location {location}. {loc.GetType()} {pmt.GetType()}");
-                item = new DisguisedVoidItem(originalItem, targetSlotName, container);
+
+                foreach (var disguise in locationDisguiseHandlers)
+                {
+                    if (disguise.CanHandleLocation(loc))
+                    {
+                        item = disguise.ProduceDisguisedItemForLocation(loc, originalItem);
+                    }
+                }
+
+                if (item == null)
+                {
+                    item = VoidItem.Nothing;
+                }
+
+                LocationDisguiseHelper.ApplyArchipelagoUIDefAndInteropTags(item, originalItem, targetSlotName);
 
                 if (netItem.Player == slot)
                 {
@@ -296,16 +319,12 @@ namespace Archipelago.HollowKnight
                     tag.Message = "RecentItems";
                     tag.Properties["IgnoreItem"] = true;
                 }
-                else
-                {
-                    SetItemTags(item, originalItem.GetPreviewName(), targetSlotName);
-                }
             }
             else
             {
                 // If item doesn't belong to Hollow Knight, then it is a remote item for another game.
                 item = new ArchipelagoItem(name, targetSlotName, netItem.Flags);
-                SetItemTags(item, name, targetSlotName);
+                LocationDisguiseHelper.ApplyArchipelagoUIDefAndInteropTags(item, targetSlotName);
             }
 
             item.OnGive += (x) =>
