@@ -5,8 +5,11 @@ namespace Archipelago.HollowKnight.IC
 {
     internal class DisguisedVoidItem : AbstractItem
     {
-        public DisguisedVoidItem(AbstractItem originalItem, string targetSlotName = null)
+        private string container;
+
+        public DisguisedVoidItem(AbstractItem originalItem, string targetSlotName = null, string container = null)
         {
+            this.container = container;
             name = originalItem.name;
             UIDef = new ArchipelagoUIDef(originalItem.UIDef, targetSlotName);
 
@@ -20,6 +23,11 @@ namespace Archipelago.HollowKnight.IC
             {
                 tag.Properties["DisplayMessage"] = $"{originalItem.GetPreviewName()}\nsent to the multiworld.";
             }
+        }
+
+        public override string GetPreferredContainer()
+        {
+            return container ?? "Unknown";
         }
 
         public override void GiveImmediate(GiveInfo info)
